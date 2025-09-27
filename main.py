@@ -8,8 +8,8 @@ from polygon_client import (
     get_quote,
     get_last_trade,
     get_ticker_details,
-    get_fundamentals,
-    get_earnings
+    get_fundamentals
+    # get_earnings  # Uncomment this only if you implement it in polygon_client.py
 )
 from fastapi.openapi.utils import get_openapi
 
@@ -51,9 +51,10 @@ def ticker_details(symbol: str):
 def fundamentals(symbol: str):
     return get_fundamentals(symbol.upper())
 
-@app.get("/earnings")
-def earnings(symbol: str):
-    return get_earnings(symbol.upper())
+# 🚫 Optional: Uncomment only if get_earnings() is implemented in polygon_client.py
+# @app.get("/earnings")
+# def earnings(symbol: str):
+#     return get_earnings(symbol.upper())
 
 @app.get("/sse")
 async def sse():
