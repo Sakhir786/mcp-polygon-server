@@ -27,3 +27,10 @@ def options(symbol: str, type: str = "call", days_out: int = 30):
 @app.get("/news")
 def news(symbol: str):
     return get_news(symbol.upper())
+from fastapi.responses import StreamingResponse
+
+@app.get("/sse")
+async def sse():
+    async def event_generator():
+        yield "data: connected\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
