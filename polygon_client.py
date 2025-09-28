@@ -1,6 +1,7 @@
 import requests
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 # Load environment variables from .env
 load_dotenv()
@@ -10,12 +11,10 @@ BASE_URL = "https://api.polygon.io"
 # ---------------- Core endpoints ----------------
 
 def get_symbol_lookup(query: str):
-    """Search tickers by keyword"""
     url = f"{BASE_URL}/v3/reference/tickers?search={query}&active=true&apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_candles(symbol: str, tf: str = "day", limit: int = 90):
-    """Historical OHLCV candles"""
     url = (
         f"{BASE_URL}/v2/aggs/ticker/{symbol}/range/1/{tf}/2023-01-01/2025-12-31"
         f"?limit={limit}&apiKey={API_KEY}"
@@ -23,49 +22,40 @@ def get_candles(symbol: str, tf: str = "day", limit: int = 90):
     return requests.get(url).json()
 
 def get_options_chain(symbol: str, option_type: str = "call", days_out: int = 30):
-    """Options chain snapshot"""
     url = f"{BASE_URL}/v3/snapshot/options/{symbol}?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_news(symbol: str):
-    """Latest news for a ticker"""
     url = f"{BASE_URL}/v2/reference/news?ticker={symbol}&limit=5&apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_last_trade(symbol: str):
-    """Last trade for a ticker"""
     url = f"{BASE_URL}/v2/last/trade/{symbol}?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_ticker_details(symbol: str):
-    """Company details for a ticker"""
     url = f"{BASE_URL}/v3/reference/tickers/{symbol}?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_fundamentals(symbol: str):
-    """Company fundamentals (financials)"""
     url = f"{BASE_URL}/vX/reference/financials?ticker={symbol.upper()}&limit=1&apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_previous_day_bar(ticker: str):
-    """Previous day OHLCV for a stock"""
     url = f"{BASE_URL}/v2/aggs/ticker/{ticker}/prev?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_single_stock_snapshot(ticker: str):
-    """Snapshot for a single stock ticker"""
     url = f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={API_KEY}"
     return requests.get(url).json()
 
 # ---------------- Options endpoints ----------------
 
 def get_all_option_contracts():
-    """List all available option contracts"""
     url = f"{BASE_URL}/v3/reference/options/contracts?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_option_aggregates(options_ticker: str, multiplier: int, timespan: str, from_date: str, to_date: str):
-    """Aggregate bars for an option contract"""
     url = (
         f"{BASE_URL}/v2/aggs/ticker/{options_ticker}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
         f"?apiKey={API_KEY}"
@@ -73,44 +63,58 @@ def get_option_aggregates(options_ticker: str, multiplier: int, timespan: str, f
     return requests.get(url).json()
 
 def get_option_previous_day_bar(options_ticker: str):
-    """Previous day OHLCV for an option contract"""
     url = f"{BASE_URL}/v2/aggs/ticker/{options_ticker}/prev?apiKey={API_KEY}"
     return requests.get(url).json()
 
 def get_option_chain_snapshot(underlying_asset: str):
-    """Snapshot of full option chain for an underlying"""
     url = f"{BASE_URL}/v3/snapshot/options/{underlying_asset}?apiKey={API_KEY}"
     return requests.get(url).json()
 
-def get_option_contract_snapshot(options_ticker: str):
+def get_option_contract_snapshot(options_ticker: str, expiry_bucket: str = "30d"):
     """
-    Snapshot for a single option contract.
-    ✅ Patched: validate contract exists in the option chain before calling Polygon.
+    Snapshot for a single option contract with expiry filtering.
+    expiry_bucket: otd, 7d, 30d, 90d, 365d, 730d
     """
     if not options_ticker.startswith("O:"):
-        return {"error": "Invalid format. Option tickers must start with 'O:'."}
+        return {"error": "Invalid format. Must start with 'O:'."}
 
-    # Extract underlying symbol from the contract ticker
     try:
-        # Format: O:{UNDERLYING}{YY}{MM}{DD}{C/P}{STRIKE}
-        body = options_ticker.split(":")[1]  # e.g., AAPL251003C00100000
-        # Strip trailing digits & contract details to recover underlying (AAPL, TSLA, etc.)
-        underlying = ''.join([ch for ch in body if not ch.isdigit()]).split('C')[0].split('P')[0]
+        underlying = options_ticker.split(":")[1][:4]  # crude parse
     except Exception:
-        return {"error": f"Unable to parse underlying asset from {options_ticker}"}
+        return {"error": "Unable to parse underlying asset from ticker."}
 
-    # Validate against chain
+    # Step 1: fetch option chain
     chain_url = f"{BASE_URL}/v3/snapshot/options/{underlying}?apiKey={API_KEY}"
     chain_data = requests.get(chain_url).json()
 
-    try:
-        valid_contracts = [c["ticker"] for c in chain_data.get("results", [])]
-    except Exception:
-        valid_contracts = []
+    contracts = chain_data.get("results", [])
+    if not contracts:
+        return {"error": "No contracts found for this underlying."}
 
-    if options_ticker not in valid_contracts:
-        return {"error": f"Option contract {options_ticker} not found or expired."}
+    # Step 2: filter by expiry bucket
+    today = datetime.utcnow().date()
+    expiry_ranges = {
+        "otd": today,
+        "7d": today + timedelta(days=7),
+        "30d": today + timedelta(days=30),
+        "90d": today + timedelta(days=90),
+        "365d": today + timedelta(days=365),
+        "730d": today + timedelta(days=730),
+    }
 
-    # Fetch snapshot if valid
+    max_expiry = expiry_ranges.get(expiry_bucket, today + timedelta(days=30))
+
+    valid_contracts = [
+        c for c in contracts
+        if "expiration_date" in c
+        and datetime.fromisoformat(c["expiration_date"]).date() >= today
+        and datetime.fromisoformat(c["expiration_date"]).date() <= max_expiry
+    ]
+
+    # Step 3: find matching contract in filtered list
+    if not any(c["ticker"] == options_ticker for c in valid_contracts):
+        return {"error": f"Option {options_ticker} not found in bucket {expiry_bucket}"}
+
+    # Step 4: return snapshot
     url = f"{BASE_URL}/v2/snapshot/locale/us/markets/options/tickers/{options_ticker}?apiKey={API_KEY}"
     return requests.get(url).json()
