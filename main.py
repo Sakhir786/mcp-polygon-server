@@ -5,21 +5,16 @@ from polygon_client import (
     get_candles,
     get_options_chain,
     get_news,
-    get_quote,
     get_last_trade,
     get_ticker_details,
     get_fundamentals,
-    get_daily_market_summary,
     get_previous_day_bar,
     get_single_stock_snapshot,
-    get_full_market_snapshot,
-    get_unified_snapshot,
     get_all_option_contracts,
     get_option_aggregates,
     get_option_previous_day_bar,
     get_option_contract_snapshot,
     get_option_chain_snapshot,
-    get_unified_option_snapshot
 )
 from fastapi.openapi.utils import get_openapi
 
@@ -47,10 +42,6 @@ def options(symbol: str, type: str = "call", days_out: int = 30):
 def news(symbol: str):
     return get_news(symbol.upper())
 
-@app.get("/quote")
-def quote(symbol: str):
-    return get_quote(symbol.upper())
-
 @app.get("/last-trade")
 def last_trade(symbol: str):
     return get_last_trade(symbol.upper())
@@ -63,11 +54,7 @@ def ticker_details(symbol: str):
 def fundamentals(symbol: str):
     return get_fundamentals(symbol.upper())
 
-# ---------------- New endpoints ----------------
-
-@app.get("/daily-market-summary/{date}")
-def daily_market_summary(date: str):
-    return get_daily_market_summary(date)
+# ---------------- Stock + Options endpoints ----------------
 
 @app.get("/previous-day-bar/{ticker}")
 def previous_day_bar(ticker: str):
@@ -76,14 +63,6 @@ def previous_day_bar(ticker: str):
 @app.get("/stock-snapshot/{ticker}")
 def stock_snapshot(ticker: str):
     return get_single_stock_snapshot(ticker.upper())
-
-@app.get("/market-snapshot")
-def market_snapshot():
-    return get_full_market_snapshot()
-
-@app.get("/unified-snapshot")
-def unified_snapshot():
-    return get_unified_snapshot()
 
 @app.get("/all-option-contracts")
 def all_option_contracts():
@@ -104,10 +83,6 @@ def option_contract_snapshot(options_ticker: str):
 @app.get("/option-chain-snapshot/{underlying_asset}")
 def option_chain_snapshot(underlying_asset: str):
     return get_option_chain_snapshot(underlying_asset.upper())
-
-@app.get("/unified-option-snapshot")
-def unified_option_snapshot():
-    return get_unified_option_snapshot()
 
 # ---------------- SSE (for streaming) ----------------
 
