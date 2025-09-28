@@ -8,8 +8,18 @@ from polygon_client import (
     get_quote,
     get_last_trade,
     get_ticker_details,
-    get_fundamentals
-    # get_earnings  # Uncomment this only if you implement it in polygon_client.py
+    get_fundamentals,
+    get_daily_market_summary,
+    get_previous_day_bar,
+    get_single_stock_snapshot,
+    get_full_market_snapshot,
+    get_unified_snapshot,
+    get_all_option_contracts,
+    get_option_aggregates,
+    get_option_previous_day_bar,
+    get_option_contract_snapshot,
+    get_option_chain_snapshot,
+    get_unified_option_snapshot
 )
 from fastapi.openapi.utils import get_openapi
 
@@ -18,6 +28,8 @@ app = FastAPI(title="MCP Server for Polygon.io")
 @app.get("/")
 def root():
     return {"message": "MCP Server is running."}
+
+# ---------------- Core endpoints ----------------
 
 @app.get("/symbol-lookup")
 def symbol_lookup(query: str):
@@ -51,16 +63,61 @@ def ticker_details(symbol: str):
 def fundamentals(symbol: str):
     return get_fundamentals(symbol.upper())
 
-# 🚫 Optional: Uncomment only if get_earnings() is implemented in polygon_client.py
-# @app.get("/earnings")
-# def earnings(symbol: str):
-#     return get_earnings(symbol.upper())
+# ---------------- New endpoints ----------------
+
+@app.get("/daily-market-summary/{date}")
+def daily_market_summary(date: str):
+    return get_daily_market_summary(date)
+
+@app.get("/previous-day-bar/{ticker}")
+def previous_day_bar(ticker: str):
+    return get_previous_day_bar(ticker.upper())
+
+@app.get("/stock-snapshot/{ticker}")
+def stock_snapshot(ticker: str):
+    return get_single_stock_snapshot(ticker.upper())
+
+@app.get("/market-snapshot")
+def market_snapshot():
+    return get_full_market_snapshot()
+
+@app.get("/unified-snapshot")
+def unified_snapshot():
+    return get_unified_snapshot()
+
+@app.get("/all-option-contracts")
+def all_option_contracts():
+    return get_all_option_contracts()
+
+@app.get("/option-aggregates/{options_ticker}")
+def option_aggregates(options_ticker: str, multiplier: int, timespan: str, from_date: str, to_date: str):
+    return get_option_aggregates(options_ticker.upper(), multiplier, timespan, from_date, to_date)
+
+@app.get("/option-previous-day-bar/{options_ticker}")
+def option_previous_day_bar(options_ticker: str):
+    return get_option_previous_day_bar(options_ticker.upper())
+
+@app.get("/option-contract-snapshot/{options_ticker}")
+def option_contract_snapshot(options_ticker: str):
+    return get_option_contract_snapshot(options_ticker.upper())
+
+@app.get("/option-chain-snapshot/{underlying_asset}")
+def option_chain_snapshot(underlying_asset: str):
+    return get_option_chain_snapshot(underlying_asset.upper())
+
+@app.get("/unified-option-snapshot")
+def unified_option_snapshot():
+    return get_unified_option_snapshot()
+
+# ---------------- SSE (for streaming) ----------------
 
 @app.get("/sse")
 async def sse():
     async def event_generator():
         yield "data: connected\n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# ---------------- Custom OpenAPI ----------------
 
 @app.get("/openapi.json", include_in_schema=False)
 async def custom_openapi():
