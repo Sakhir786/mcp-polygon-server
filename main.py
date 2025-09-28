@@ -17,6 +17,8 @@ from polygon_client import (
     get_option_chain_snapshot,
 )
 from fastapi.openapi.utils import get_openapi
+import pandas as pd
+import numpy as np
 
 app = FastAPI(title="MCP Server for Polygon.io")
 
@@ -78,10 +80,6 @@ def option_previous_day_bar(options_ticker: str):
 
 @app.get("/option-contract-snapshot/{options_ticker}")
 def option_contract_snapshot_route(options_ticker: str):
-    """
-    Wrapper for get_option_contract_snapshot with error handling.
-    Returns 400 if invalid/expired contract is requested.
-    """
     result = get_option_contract_snapshot(options_ticker.upper())
     if "error" in result:
         return JSONResponse(status_code=400, content=result)
@@ -90,6 +88,74 @@ def option_contract_snapshot_route(options_ticker: str):
 @app.get("/option-chain-snapshot/{underlying_asset}")
 def option_chain_snapshot(underlying_asset: str):
     return get_option_chain_snapshot(underlying_asset.upper())
+
+# ---------------- Indicators ----------------
+
+@app.get("/indicator/full-scan/{ticker}")
+def full_scan(ticker: str, limit: int = 100):
+    """Run full indicator suite (OBV, CMF, RSI, ADX, Bollinger Bands, VWAP)"""
+    data = get_candles(ticker.upper(), tf="day", limit=limit)
+
+    if "results" not in data:
+        return {"error": "No candle data found."}
+
+    df = pd.DataFrame(data["results"])
+    df["date"] = pd.to_datetime(df["t"], unit="ms")
+    df.set_index("date", inplace=True)
+
+    # --- Indicators ---
+    # OBV
+    df["OBV"] = (np.sign(df["c"].diff()) * df["v"]).fillna(0).cumsum()
+
+    # CMF (Chaikin Money Flow)
+    mf_mult = ((df["c"] - df["l"]) - (df["h"] - df["c"])) / (df["h"] - df["l"])
+    df["CMF"] = (mf_mult * df["v"]).rolling(20).sum() / df["v"].rolling(20).sum()
+
+    # RSI
+    delta = df["c"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # ADX
+    df["+DM"] = np.where((df["h"].diff() > df["l"].diff()) & (df["h"].diff() > 0), df["h"].diff(), 0)
+    df["-DM"] = np.where((df["l"].diff() > df["h"].diff()) & (df["l"].diff() > 0), df["l"].diff(), 0)
+    df["+DI"] = 100 * (df["+DM"].ewm(span=14).mean() / df["v"])
+    df["-DI"] = 100 * (df["-DM"].ewm(span=14).mean() / df["v"])
+    df["ADX"] = (abs(df["+DI"] - df["-DI"]) / (df["+DI"] + df["-DI"])) * 100
+
+    # Bollinger Bands
+    df["MA20"] = df["c"].rolling(20).mean()
+    df["STD20"] = df["c"].rolling(20).std()
+    df["Upper"] = df["MA20"] + (2 * df["STD20"])
+    df["Lower"] = df["MA20"] - (2 * df["STD20"])
+
+    # VWAP
+    df["VWAP"] = (df["v"] * (df["h"] + df["l"] + df["c"]) / 3).cumsum() / df["v"].cumsum()
+
+    latest = df.iloc[-1]
+
+    return {
+        "symbol": ticker.upper(),
+        "indicators": {
+            "OBV": float(latest["OBV"]),
+            "CMF": float(latest["CMF"]),
+            "RSI": float(latest["RSI"]),
+            "ADX": float(latest["ADX"]),
+            "Bollinger": {
+                "upper": float(latest["Upper"]),
+                "lower": float(latest["Lower"]),
+                "ma20": float(latest["MA20"]),
+                "price_vs_band": "above_upper" if latest["c"] > latest["Upper"] else
+                                 "below_lower" if latest["c"] < latest["Lower"] else "inside"
+            },
+            "VWAP": {
+                "value": float(latest["VWAP"]),
+                "price_vs_vwap": "above" if latest["c"] > latest["VWAP"] else "below"
+            }
+        }
+    }
 
 # ---------------- SSE (for streaming) ----------------
 
