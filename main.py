@@ -147,7 +147,7 @@ def option_chain_snapshot_route(underlying_asset: str,
 
 # ---------------- Indicator Full Scan ----------------
 @app.get("/indicator/full-scan")
-def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 100):
+def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 220):
     """Run a full indicator scan (RSI, MACD, BB, VWAP, CMF, OBV, SMA50/200)."""
     candles = get_candles(symbol.upper(), tf=tf, limit=limit)
     if not candles or "results" not in candles or len(candles["results"]) == 0:
@@ -245,3 +245,4 @@ async def custom_openapi():
         version="1.0.0",
         routes=app.routes
     ))
+
