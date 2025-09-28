@@ -89,73 +89,56 @@ def option_contract_snapshot_route(options_ticker: str):
 def option_chain_snapshot(underlying_asset: str):
     return get_option_chain_snapshot(underlying_asset.upper())
 
-# ---------------- Indicators ----------------
+# ---------------- Indicators endpoint ----------------
 
-@app.get("/indicator/full-scan/{ticker}")
-def full_scan(ticker: str, limit: int = 100):
-    """Run full indicator suite (OBV, CMF, RSI, ADX, Bollinger Bands, VWAP)"""
-    data = get_candles(ticker.upper(), tf="day", limit=limit)
+@app.get("/indicator/full-scan")
+def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 100):
+    """Return RSI, MACD, Bollinger Bands, VWAP, CMF, OBV for given symbol"""
+    candles = get_candles(symbol.upper(), tf=tf, limit=limit)
 
-    if "results" not in data:
-        return {"error": "No candle data found."}
+    if "results" not in candles:
+        return {"error": "No candle data returned"}
 
-    df = pd.DataFrame(data["results"])
-    df["date"] = pd.to_datetime(df["t"], unit="ms")
-    df.set_index("date", inplace=True)
+    closes = [c["c"] for c in candles["results"]]
+    volumes = [c["v"] for c in candles["results"]]
 
-    # --- Indicators ---
-    # OBV
-    df["OBV"] = (np.sign(df["c"].diff()) * df["v"]).fillna(0).cumsum()
-
-    # CMF (Chaikin Money Flow)
-    mf_mult = ((df["c"] - df["l"]) - (df["h"] - df["c"])) / (df["h"] - df["l"])
-    df["CMF"] = (mf_mult * df["v"]).rolling(20).sum() / df["v"].rolling(20).sum()
+    df = pd.DataFrame({"close": closes, "volume": volumes})
 
     # RSI
-    delta = df["c"].diff()
-    gain = delta.where(delta > 0, 0).rolling(14).mean()
-    loss = -delta.where(delta < 0, 0).rolling(14).mean()
-    rs = gain / loss
+    delta = df["close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14, min_periods=1).mean()
+    avg_loss = pd.Series(loss).rolling(window=14, min_periods=1).mean()
+    rs = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # ADX
-    df["+DM"] = np.where((df["h"].diff() > df["l"].diff()) & (df["h"].diff() > 0), df["h"].diff(), 0)
-    df["-DM"] = np.where((df["l"].diff() > df["h"].diff()) & (df["l"].diff() > 0), df["l"].diff(), 0)
-    df["+DI"] = 100 * (df["+DM"].ewm(span=14).mean() / df["v"])
-    df["-DI"] = 100 * (df["-DM"].ewm(span=14).mean() / df["v"])
-    df["ADX"] = (abs(df["+DI"] - df["-DI"]) / (df["+DI"] + df["-DI"])) * 100
+    # MACD
+    ema12 = df["close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
     # Bollinger Bands
-    df["MA20"] = df["c"].rolling(20).mean()
-    df["STD20"] = df["c"].rolling(20).std()
-    df["Upper"] = df["MA20"] + (2 * df["STD20"])
-    df["Lower"] = df["MA20"] - (2 * df["STD20"])
+    sma20 = df["close"].rolling(window=20).mean()
+    std20 = df["close"].rolling(window=20).std()
+    df["BB_upper"] = sma20 + 2 * std20
+    df["BB_lower"] = sma20 - 2 * std20
 
     # VWAP
-    df["VWAP"] = (df["v"] * (df["h"] + df["l"] + df["c"]) / 3).cumsum() / df["v"].cumsum()
+    df["VWAP"] = (df["close"] * df["volume"]).cumsum() / df["volume"].cumsum()
 
-    latest = df.iloc[-1]
+    # CMF
+    mfm = ((df["close"] - df["close"].rolling(20).min()) -
+           (df["close"].rolling(20).max() - df["close"])) / (
+           df["close"].rolling(20).max() - df["close"].rolling(20).min())
+    mfv = mfm * df["volume"]
+    df["CMF"] = mfv.rolling(20).sum() / df["volume"].rolling(20).sum()
 
-    return {
-        "symbol": ticker.upper(),
-        "indicators": {
-            "OBV": float(latest["OBV"]),
-            "CMF": float(latest["CMF"]),
-            "RSI": float(latest["RSI"]),
-            "ADX": float(latest["ADX"]),
-            "Bollinger": {
-                "upper": float(latest["Upper"]),
-                "lower": float(latest["Lower"]),
-                "ma20": float(latest["MA20"]),
-                "price_vs_band": "above_upper" if latest["c"] > latest["Upper"] else
-                                 "below_lower" if latest["c"] < latest["Lower"] else "inside"
-            },
-            "VWAP": {
-                "value": float(latest["VWAP"]),
-                "price_vs_vwap": "above" if latest["c"] > latest["VWAP"] else "below"
-            }
-        }
-    }
+    # OBV
+    df["OBV"] = (np.sign(df["close"].diff()) * df["volume"]).fillna(0).cumsum()
+
+    return df.tail(limit).to_dict(orient="records")
 
 # ---------------- SSE (for streaming) ----------------
 
