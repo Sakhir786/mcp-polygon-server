@@ -77,8 +77,15 @@ def option_previous_day_bar(options_ticker: str):
     return get_option_previous_day_bar(options_ticker.upper())
 
 @app.get("/option-contract-snapshot/{options_ticker}")
-def option_contract_snapshot(options_ticker: str):
-    return get_option_contract_snapshot(options_ticker.upper())
+def option_contract_snapshot_route(options_ticker: str):
+    """
+    Wrapper for get_option_contract_snapshot with error handling.
+    Returns 400 if invalid/expired contract is requested.
+    """
+    result = get_option_contract_snapshot(options_ticker.upper())
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 @app.get("/option-chain-snapshot/{underlying_asset}")
 def option_chain_snapshot(underlying_asset: str):
