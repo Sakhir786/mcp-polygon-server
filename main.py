@@ -18,6 +18,8 @@ from polygon_client import (
 )
 from fastapi.openapi.utils import get_openapi
 from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
 
 app = FastAPI(title="MCP Server for Polygon.io")
 
@@ -94,7 +96,10 @@ def filter_by_expiry(results: list, expiry_bucket: str | None = None):
         }
         if expiry_bucket in bucket_days:
             cutoff = today + timedelta(days=bucket_days[expiry_bucket])
-            filtered = [c for c in filtered if datetime.strptime(c["expiration_date"], "%Y-%m-%d").date() <= cutoff]
+            filtered = [
+                c for c in filtered
+                if datetime.strptime(c["expiration_date"], "%Y-%m-%d").date() <= cutoff
+            ]
 
     return filtered
 
@@ -148,6 +153,80 @@ def option_chain_snapshot_route(underlying_asset: str,
     if "results" in chain:
         chain["results"] = filter_by_expiry(chain["results"], expiry_bucket)
     return chain
+
+# ---------------- Indicator Full Scan ----------------
+
+@app.get("/indicator/full-scan")
+def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 100):
+    """Run a full indicator scan (RSI, MACD, BB, VWAP, CMF, OBV, SMA50/200)."""
+    candles = get_candles(symbol.upper(), tf=tf, limit=limit)
+    if "results" not in candles:
+        return JSONResponse(status_code=400, content={"error": "No candle data"})
+
+    closes = [c["c"] for c in candles["results"]]
+    volumes = [c["v"] for c in candles["results"]]
+
+    df = pd.DataFrame({"close": closes, "volume": volumes})
+
+    # RSI
+    delta = df["close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema12 = df["close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+
+    # Bollinger Bands
+    sma20 = df["close"].rolling(window=20).mean()
+    std20 = df["close"].rolling(window=20).std()
+    df["BB_upper"] = sma20 + 2 * std20
+    df["BB_lower"] = sma20 - 2 * std20
+
+    # VWAP
+    df["VWAP"] = (df["close"] * df["volume"]).cumsum() / df["volume"].cumsum()
+
+    # CMF
+    mfm = ((df["close"] - df["close"].rolling(20).min()) -
+           (df["close"].rolling(20).max() - df["close"])) / (
+           df["close"].rolling(20).max() - df["close"].rolling(20).min())
+    mfv = mfm * df["volume"]
+    df["CMF"] = mfv.rolling(20).sum() / df["volume"].rolling(20).sum()
+
+    # OBV
+    df["OBV"] = (np.sign(df["close"].diff()) * df["volume"]).fillna(0).cumsum()
+
+    # SMA 50 & 200
+    df["SMA50"] = df["close"].rolling(window=50).mean()
+    df["SMA200"] = df["close"].rolling(window=200).mean()
+    golden_cross = bool(df["SMA50"].iloc[-1] > df["SMA200"].iloc[-1])
+    death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
+
+    # Latest values
+    latest = df.iloc[-1].to_dict()
+    return {
+        "symbol": symbol.upper(),
+        "RSI": round(float(latest.get("RSI", 0)), 2),
+        "MACD": round(float(latest.get("MACD", 0)), 2),
+        "Signal": round(float(latest.get("Signal", 0)), 2),
+        "BollingerBands": {
+            "upper": round(float(latest.get("BB_upper", 0)), 2),
+            "lower": round(float(latest.get("BB_lower", 0)), 2),
+        },
+        "VWAP": round(float(latest.get("VWAP", 0)), 2),
+        "CMF": round(float(latest.get("CMF", 0)), 4),
+        "OBV": round(float(latest.get("OBV", 0)), 2),
+        "SMA50": round(float(latest.get("SMA50", 0)), 2),
+        "SMA200": round(float(latest.get("SMA200", 0)), 2),
+        "GoldenCross": golden_cross,
+        "DeathCross": death_cross,
+    }
 
 # ---------------- SSE ----------------
 
