@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from polygon_client import (
     get_symbol_lookup,
@@ -17,8 +17,11 @@ from polygon_client import (
     get_option_chain_snapshot,
 )
 from fastapi.openapi.utils import get_openapi
+from datetime import datetime, timedelta
 
 app = FastAPI(title="MCP Server for Polygon.io")
+
+# ---------------- Root ----------------
 
 @app.get("/")
 def root():
@@ -33,10 +36,6 @@ def symbol_lookup(query: str):
 @app.get("/candles")
 def candles(symbol: str, tf: str = "day", limit: int = 90):
     return get_candles(symbol.upper(), tf=tf, limit=limit)
-
-@app.get("/options")
-def options(symbol: str, type: str = "call", days_out: int = 30):
-    return get_options_chain(symbol.upper(), option_type=type.lower(), days_out=days_out)
 
 @app.get("/news")
 def news(symbol: str):
@@ -54,7 +53,7 @@ def ticker_details(symbol: str):
 def fundamentals(symbol: str):
     return get_fundamentals(symbol.upper())
 
-# ---------------- Stock + Options endpoints ----------------
+# ---------------- Stock endpoints ----------------
 
 @app.get("/previous-day-bar/{ticker}")
 def previous_day_bar(ticker: str):
@@ -64,9 +63,57 @@ def previous_day_bar(ticker: str):
 def stock_snapshot(ticker: str):
     return get_single_stock_snapshot(ticker.upper())
 
+# ---------------- Options endpoints with expiry filtering ----------------
+
+def filter_by_expiry(results: list, expiry_bucket: str | None = None):
+    """Filter options contracts between today and +2 years. Optionally narrow by bucket."""
+    today = datetime.utcnow().date()
+    max_date = today + timedelta(days=730)
+
+    filtered = []
+    for c in results:
+        expiry = c.get("expiration_date")
+        if not expiry:
+            continue
+        try:
+            expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if today <= expiry_date <= max_date:
+            filtered.append(c)
+
+    # Apply expiry bucket if given
+    if expiry_bucket:
+        bucket_days = {
+            "otd": 0,
+            "7d": 7,
+            "30d": 30,
+            "90d": 90,
+            "365d": 365,
+            "730d": 730,
+        }
+        if expiry_bucket in bucket_days:
+            cutoff = today + timedelta(days=bucket_days[expiry_bucket])
+            filtered = [c for c in filtered if datetime.strptime(c["expiration_date"], "%Y-%m-%d").date() <= cutoff]
+
+    return filtered
+
+@app.get("/options")
+def options(symbol: str,
+            type: str = "call",
+            days_out: int = 30,
+            expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
+    chain = get_options_chain(symbol.upper(), option_type=type.lower(), days_out=days_out)
+    if "results" in chain:
+        chain["results"] = filter_by_expiry(chain["results"], expiry_bucket)
+    return chain
+
 @app.get("/all-option-contracts")
-def all_option_contracts():
-    return get_all_option_contracts()
+def all_option_contracts(expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
+    contracts = get_all_option_contracts()
+    if "results" in contracts:
+        contracts["results"] = filter_by_expiry(contracts["results"], expiry_bucket)
+    return contracts
 
 @app.get("/option-aggregates/{options_ticker}")
 def option_aggregates(options_ticker: str, multiplier: int, timespan: str, from_date: str, to_date: str):
@@ -77,21 +124,32 @@ def option_previous_day_bar(options_ticker: str):
     return get_option_previous_day_bar(options_ticker.upper())
 
 @app.get("/option-contract-snapshot/{options_ticker}")
-def option_contract_snapshot_route(options_ticker: str, expiry_bucket: str = "30d"):
+def option_contract_snapshot_route(options_ticker: str):
     """
     Wrapper for get_option_contract_snapshot with expiry filtering.
-    expiry_bucket: otd, 7d, 30d, 90d, 365d, 730d
+    Returns 400 if contract is expired or invalid.
     """
-    result = get_option_contract_snapshot(options_ticker.upper(), expiry_bucket=expiry_bucket)
+    result = get_option_contract_snapshot(options_ticker.upper())
     if "error" in result:
         return JSONResponse(status_code=400, content=result)
+
+    expiry = result.get("results", {}).get("expiration_date")
+    if expiry:
+        expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+        today = datetime.utcnow().date()
+        if expiry_date < today or expiry_date > today + timedelta(days=730):
+            return JSONResponse(status_code=400, content={"error": "Expired or too far contract"})
     return result
 
 @app.get("/option-chain-snapshot/{underlying_asset}")
-def option_chain_snapshot(underlying_asset: str):
-    return get_option_chain_snapshot(underlying_asset.upper())
+def option_chain_snapshot_route(underlying_asset: str,
+                                expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
+    chain = get_option_chain_snapshot(underlying_asset.upper())
+    if "results" in chain:
+        chain["results"] = filter_by_expiry(chain["results"], expiry_bucket)
+    return chain
 
-# ---------------- SSE (for streaming) ----------------
+# ---------------- SSE ----------------
 
 @app.get("/sse")
 async def sse():
@@ -99,7 +157,7 @@ async def sse():
         yield "data: connected\n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-# ---------------- Custom OpenAPI ----------------
+# ---------------- OpenAPI ----------------
 
 @app.get("/openapi.json", include_in_schema=False)
 async def custom_openapi():
