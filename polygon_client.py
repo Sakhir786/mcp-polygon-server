@@ -85,30 +85,32 @@ def get_option_chain_snapshot(underlying_asset: str):
 def get_option_contract_snapshot(options_ticker: str):
     """
     Snapshot for a single option contract.
-    ✅ Patched: validate contract exists before calling Polygon.
+    ✅ Patched: validate contract exists in the option chain before calling Polygon.
     """
-    # Step 1: figure out underlying asset (e.g., AAPL from O:AAPL...)
     if not options_ticker.startswith("O:"):
-        return {"error": "Invalid format. Must start with 'O:'."}
+        return {"error": "Invalid format. Option tickers must start with 'O:'."}
 
+    # Extract underlying symbol from the contract ticker
     try:
-        underlying = options_ticker.split(":")[1][:4]  # crude parse (AAPL, TSLA, etc.)
+        # Format: O:{UNDERLYING}{YY}{MM}{DD}{C/P}{STRIKE}
+        body = options_ticker.split(":")[1]  # e.g., AAPL251003C00100000
+        # Strip trailing digits & contract details to recover underlying (AAPL, TSLA, etc.)
+        underlying = ''.join([ch for ch in body if not ch.isdigit()]).split('C')[0].split('P')[0]
     except Exception:
-        return {"error": "Unable to parse underlying asset from ticker."}
+        return {"error": f"Unable to parse underlying asset from {options_ticker}"}
 
-    # Step 2: validate contract against chain
+    # Validate against chain
     chain_url = f"{BASE_URL}/v3/snapshot/options/{underlying}?apiKey={API_KEY}"
     chain_data = requests.get(chain_url).json()
 
-    valid_contracts = []
     try:
         valid_contracts = [c["ticker"] for c in chain_data.get("results", [])]
     except Exception:
-        pass
+        valid_contracts = []
 
     if options_ticker not in valid_contracts:
         return {"error": f"Option contract {options_ticker} not found or expired."}
 
-    # Step 3: fetch snapshot if valid
+    # Fetch snapshot if valid
     url = f"{BASE_URL}/v2/snapshot/locale/us/markets/options/tickers/{options_ticker}?apiKey={API_KEY}"
     return requests.get(url).json()
