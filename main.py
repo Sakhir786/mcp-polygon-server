@@ -24,13 +24,11 @@ import numpy as np
 app = FastAPI(title="MCP Server for Polygon.io")
 
 # ---------------- Root ----------------
-
 @app.get("/")
 def root():
     return {"message": "MCP Server is running."}
 
 # ---------------- Core endpoints ----------------
-
 @app.get("/symbol-lookup")
 def symbol_lookup(query: str):
     return get_symbol_lookup(query)
@@ -56,7 +54,6 @@ def fundamentals(symbol: str):
     return get_fundamentals(symbol.upper())
 
 # ---------------- Stock endpoints ----------------
-
 @app.get("/previous-day-bar/{ticker}")
 def previous_day_bar(ticker: str):
     return get_previous_day_bar(ticker.upper())
@@ -66,7 +63,6 @@ def stock_snapshot(ticker: str):
     return get_single_stock_snapshot(ticker.upper())
 
 # ---------------- Options endpoints with expiry filtering ----------------
-
 def filter_by_expiry(results: list, expiry_bucket: str | None = None):
     """Filter options contracts between today and +2 years. Optionally narrow by bucket."""
     today = datetime.utcnow().date()
@@ -84,7 +80,6 @@ def filter_by_expiry(results: list, expiry_bucket: str | None = None):
         if today <= expiry_date <= max_date:
             filtered.append(c)
 
-    # Apply expiry bucket if given
     if expiry_bucket:
         bucket_days = {
             "otd": 0,
@@ -130,10 +125,6 @@ def option_previous_day_bar(options_ticker: str):
 
 @app.get("/option-contract-snapshot/{options_ticker}")
 def option_contract_snapshot_route(options_ticker: str):
-    """
-    Wrapper for get_option_contract_snapshot with expiry filtering.
-    Returns 400 if contract is expired or invalid.
-    """
     result = get_option_contract_snapshot(options_ticker.upper())
     if "error" in result:
         return JSONResponse(status_code=400, content=result)
@@ -155,81 +146,91 @@ def option_chain_snapshot_route(underlying_asset: str,
     return chain
 
 # ---------------- Indicator Full Scan ----------------
-
 @app.get("/indicator/full-scan")
 def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 100):
     """Run a full indicator scan (RSI, MACD, BB, VWAP, CMF, OBV, SMA50/200)."""
     candles = get_candles(symbol.upper(), tf=tf, limit=limit)
-    if "results" not in candles:
+    if not candles or "results" not in candles or len(candles["results"]) == 0:
         return JSONResponse(status_code=400, content={"error": "No candle data"})
 
-    closes = [c["c"] for c in candles["results"]]
-    volumes = [c["v"] for c in candles["results"]]
+    closes = [c.get("c") for c in candles["results"] if c.get("c") is not None]
+    volumes = [c.get("v") for c in candles["results"] if c.get("v") is not None]
+
+    if len(closes) < 20:
+        return JSONResponse(status_code=400, content={"error": "Not enough data for indicators"})
 
     df = pd.DataFrame({"close": closes, "volume": volumes})
 
-    # RSI
-    delta = df["close"].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=14).mean()
-    avg_loss = pd.Series(loss).rolling(window=14).mean()
-    rs = avg_gain / avg_loss
-    df["RSI"] = 100 - (100 / (1 + rs))
+    try:
+        # RSI
+        delta = df["close"].diff()
+        gain = np.where(delta > 0, delta, 0)
+        loss = np.where(delta < 0, -delta, 0)
+        avg_gain = pd.Series(gain).rolling(window=14).mean()
+        avg_loss = pd.Series(loss).rolling(window=14).mean()
+        rs = avg_gain / avg_loss
+        df["RSI"] = 100 - (100 / (1 + rs))
 
-    # MACD
-    ema12 = df["close"].ewm(span=12, adjust=False).mean()
-    ema26 = df["close"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = ema12 - ema26
-    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+        # MACD
+        ema12 = df["close"].ewm(span=12, adjust=False).mean()
+        ema26 = df["close"].ewm(span=26, adjust=False).mean()
+        df["MACD"] = ema12 - ema26
+        df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # Bollinger Bands
-    sma20 = df["close"].rolling(window=20).mean()
-    std20 = df["close"].rolling(window=20).std()
-    df["BB_upper"] = sma20 + 2 * std20
-    df["BB_lower"] = sma20 - 2 * std20
+        # Bollinger Bands
+        sma20 = df["close"].rolling(window=20).mean()
+        std20 = df["close"].rolling(window=20).std()
+        df["BB_upper"] = sma20 + 2 * std20
+        df["BB_lower"] = sma20 - 2 * std20
+        df["BB_middle"] = sma20
 
-    # VWAP
-    df["VWAP"] = (df["close"] * df["volume"]).cumsum() / df["volume"].cumsum()
+        # VWAP
+        df["VWAP"] = (df["close"] * df["volume"]).cumsum() / df["volume"].cumsum()
 
-    # CMF
-    mfm = ((df["close"] - df["close"].rolling(20).min()) -
-           (df["close"].rolling(20).max() - df["close"])) / (
-           df["close"].rolling(20).max() - df["close"].rolling(20).min())
-    mfv = mfm * df["volume"]
-    df["CMF"] = mfv.rolling(20).sum() / df["volume"].rolling(20).sum()
+        # CMF
+        mfm = ((df["close"] - df["close"].rolling(20).min()) -
+               (df["close"].rolling(20).max() - df["close"])) / (
+               df["close"].rolling(20).max() - df["close"].rolling(20).min())
+        mfv = mfm * df["volume"]
+        df["CMF"] = mfv.rolling(20).sum() / df["volume"].rolling(20).sum()
 
-    # OBV
-    df["OBV"] = (np.sign(df["close"].diff()) * df["volume"]).fillna(0).cumsum()
+        # OBV
+        df["OBV"] = (np.sign(df["close"].diff()) * df["volume"]).fillna(0).cumsum()
 
-    # SMA 50 & 200
-    df["SMA50"] = df["close"].rolling(window=50).mean()
-    df["SMA200"] = df["close"].rolling(window=200).mean()
-    golden_cross = bool(df["SMA50"].iloc[-1] > df["SMA200"].iloc[-1])
-    death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
+        # SMA 50 & 200
+        df["SMA50"] = df["close"].rolling(window=50).mean()
+        df["SMA200"] = df["close"].rolling(window=200).mean()
+        golden_cross = None
+        death_cross = None
+        if len(df) >= 200:
+            golden_cross = bool(df["SMA50"].iloc[-1] > df["SMA200"].iloc[-1])
+            death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
 
-    # Latest values
-    latest = df.iloc[-1].to_dict()
-    return {
-        "symbol": symbol.upper(),
-        "RSI": round(float(latest.get("RSI", 0)), 2),
-        "MACD": round(float(latest.get("MACD", 0)), 2),
-        "Signal": round(float(latest.get("Signal", 0)), 2),
-        "BollingerBands": {
-            "upper": round(float(latest.get("BB_upper", 0)), 2),
-            "lower": round(float(latest.get("BB_lower", 0)), 2),
-        },
-        "VWAP": round(float(latest.get("VWAP", 0)), 2),
-        "CMF": round(float(latest.get("CMF", 0)), 4),
-        "OBV": round(float(latest.get("OBV", 0)), 2),
-        "SMA50": round(float(latest.get("SMA50", 0)), 2),
-        "SMA200": round(float(latest.get("SMA200", 0)), 2),
-        "GoldenCross": golden_cross,
-        "DeathCross": death_cross,
-    }
+        latest = df.iloc[-1].replace({np.nan: None}).to_dict()
+
+        return {
+            "symbol": symbol.upper(),
+            "RSI": latest.get("RSI"),
+            "MACD": latest.get("MACD"),
+            "Signal": latest.get("Signal"),
+            "BollingerBands": {
+                "upper": latest.get("BB_upper"),
+                "lower": latest.get("BB_lower"),
+                "middle": latest.get("BB_middle"),
+            },
+            "VWAP": latest.get("VWAP"),
+            "CMF": latest.get("CMF"),
+            "OBV": latest.get("OBV"),
+            "SMA50": latest.get("SMA50"),
+            "SMA200": latest.get("SMA200"),
+            "GoldenCross": golden_cross,
+            "DeathCross": death_cross,
+        }
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 # ---------------- SSE ----------------
-
 @app.get("/sse")
 async def sse():
     async def event_generator():
@@ -237,7 +238,6 @@ async def sse():
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # ---------------- OpenAPI ----------------
-
 @app.get("/openapi.json", include_in_schema=False)
 async def custom_openapi():
     return JSONResponse(get_openapi(
