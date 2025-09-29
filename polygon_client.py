@@ -14,7 +14,7 @@ def get_symbol_lookup(query: str):
     url = f"{BASE_URL}/v3/reference/tickers?search={query}&active=true&apiKey={API_KEY}"
     return requests.get(url).json()
 
-def get_candles(symbol: str, tf: str = "day", limit: int = 90):
+def get_candles(symbol: str, tf: str = "day", limit: int = 730):
     url = (
         f"{BASE_URL}/v2/aggs/ticker/{symbol}/range/1/{tf}/2023-01-01/2025-12-31"
         f"?limit={limit}&apiKey={API_KEY}"
@@ -81,3 +81,4 @@ def get_option_contract_snapshot(underlying: str, contract: str):
     """Snapshot for a single option contract (Polygon requires both underlying + contract)."""
     url = f"{BASE_URL}/v3/snapshot/options/{underlying}/{contract}?apiKey={API_KEY}"
     return requests.get(url).json()
+
