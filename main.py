@@ -109,8 +109,12 @@ def options(symbol: str,
     return chain
 
 @app.get("/all-option-contracts")
-def all_option_contracts(expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
-    contracts = get_all_option_contracts()
+def all_option_contracts(underlying_ticker: str,
+                         expiration_date: str | None = None,
+                         limit: int = 50,
+                         expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
+    """Fetch all option contracts for a given stock, with expiry filtering."""
+    contracts = get_all_option_contracts(underlying_ticker.upper(), expiration_date, limit)
     if "results" in contracts:
         contracts["results"] = filter_by_expiry(contracts["results"], expiry_bucket)
     return contracts
@@ -123,9 +127,10 @@ def option_aggregates(options_ticker: str, multiplier: int, timespan: str, from_
 def option_previous_day_bar(options_ticker: str):
     return get_option_previous_day_bar(options_ticker.upper())
 
-@app.get("/option-contract-snapshot/{options_ticker}")
-def option_contract_snapshot_route(options_ticker: str):
-    result = get_option_contract_snapshot(options_ticker.upper())
+@app.get("/option-contract-snapshot/{underlying}/{contract}")
+def option_contract_snapshot_route(underlying: str, contract: str):
+    """Snapshot for a single option contract (requires both underlying + contract)."""
+    result = get_option_contract_snapshot(underlying.upper(), contract.upper())
     if "error" in result:
         return JSONResponse(status_code=400, content=result)
 
@@ -139,8 +144,11 @@ def option_contract_snapshot_route(options_ticker: str):
 
 @app.get("/option-chain-snapshot/{underlying_asset}")
 def option_chain_snapshot_route(underlying_asset: str,
-                                expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"])):
-    chain = get_option_chain_snapshot(underlying_asset.upper())
+                                expiry_bucket: str | None = Query(None, enum=["otd","7d","30d","90d","365d","730d"]),
+                                cursor: str | None = None,
+                                limit: int = 50):
+    """Snapshot of full option chain for a stock (supports pagination)."""
+    chain = get_option_chain_snapshot(underlying_asset.upper(), cursor=cursor, limit=limit)
     if "results" in chain:
         chain["results"] = filter_by_expiry(chain["results"], expiry_bucket)
     return chain
@@ -245,4 +253,3 @@ async def custom_openapi():
         version="1.0.0",
         routes=app.routes
     ))
-
