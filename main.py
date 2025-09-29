@@ -34,7 +34,8 @@ def symbol_lookup(query: str):
     return get_symbol_lookup(query)
 
 @app.get("/candles")
-def candles(symbol: str, tf: str = "day", limit: int = 90):
+def candles(symbol: str, tf: str = "day", limit: int = 730):
+    """Fetch up to 2 years of OHLCV candles (default 730 daily)."""
     return get_candles(symbol.upper(), tf=tf, limit=limit)
 
 @app.get("/news")
@@ -155,19 +156,23 @@ def option_chain_snapshot_route(underlying_asset: str,
 
 # ---------------- Indicator Full Scan ----------------
 @app.get("/indicator/full-scan")
-def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 220):
-    """Run a full indicator scan (RSI, MACD, BB, VWAP, CMF, OBV, SMA50/200)."""
-    candles = get_candles(symbol.upper(), tf=tf, limit=limit)
+def full_indicator_scan(symbol: str, tf: str = "day"):
+    """
+    Run a full indicator scan over ~2 years of history.
+    Returns latest snapshot and last 5 rows for trend context.
+    """
+    candles = get_candles(symbol.upper(), tf=tf, limit=730)  # force 2 years
     if not candles or "results" not in candles or len(candles["results"]) == 0:
         return JSONResponse(status_code=400, content={"error": "No candle data"})
 
     closes = [c.get("c") for c in candles["results"] if c.get("c") is not None]
     volumes = [c.get("v") for c in candles["results"] if c.get("v") is not None]
+    dates = [datetime.utcfromtimestamp(c["t"] / 1000).strftime("%Y-%m-%d") for c in candles["results"]]
 
-    if len(closes) < 20:
-        return JSONResponse(status_code=400, content={"error": "Not enough data for indicators"})
+    if len(closes) < 200:
+        return JSONResponse(status_code=400, content={"error": "Not enough data for SMA200"})
 
-    df = pd.DataFrame({"close": closes, "volume": volumes})
+    df = pd.DataFrame({"date": dates, "close": closes, "volume": volumes})
 
     try:
         # RSI
@@ -215,24 +220,28 @@ def full_indicator_scan(symbol: str, tf: str = "day", limit: int = 220):
             death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
 
         latest = df.iloc[-1].replace({np.nan: None}).to_dict()
+        last5 = df.tail(5).replace({np.nan: None}).to_dict(orient="records")
 
         return {
             "symbol": symbol.upper(),
-            "RSI": latest.get("RSI"),
-            "MACD": latest.get("MACD"),
-            "Signal": latest.get("Signal"),
-            "BollingerBands": {
-                "upper": latest.get("BB_upper"),
-                "lower": latest.get("BB_lower"),
-                "middle": latest.get("BB_middle"),
+            "latest": {
+                "RSI": latest.get("RSI"),
+                "MACD": latest.get("MACD"),
+                "Signal": latest.get("Signal"),
+                "BollingerBands": {
+                    "upper": latest.get("BB_upper"),
+                    "lower": latest.get("BB_lower"),
+                    "middle": latest.get("BB_middle"),
+                },
+                "VWAP": latest.get("VWAP"),
+                "CMF": latest.get("CMF"),
+                "OBV": latest.get("OBV"),
+                "SMA50": latest.get("SMA50"),
+                "SMA200": latest.get("SMA200"),
+                "GoldenCross": golden_cross,
+                "DeathCross": death_cross,
             },
-            "VWAP": latest.get("VWAP"),
-            "CMF": latest.get("CMF"),
-            "OBV": latest.get("OBV"),
-            "SMA50": latest.get("SMA50"),
-            "SMA200": latest.get("SMA200"),
-            "GoldenCross": golden_cross,
-            "DeathCross": death_cross,
+            "last5": last5
         }
 
     except Exception as e:
