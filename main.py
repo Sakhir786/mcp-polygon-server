@@ -35,7 +35,7 @@ def symbol_lookup(query: str):
 
 @app.get("/candles")
 def candles(symbol: str, tf: str = "day", limit: int = 730):
-    """Fetch up to 2 years of OHLCV candles (default 730 daily)."""
+    """Fetch up to 2 years of OHLCV candles (default 730 daily bars)."""
     return get_candles(symbol.upper(), tf=tf, limit=limit)
 
 @app.get("/news")
@@ -213,35 +213,18 @@ def full_indicator_scan(symbol: str, tf: str = "day"):
         # SMA 50 & 200
         df["SMA50"] = df["close"].rolling(window=50).mean()
         df["SMA200"] = df["close"].rolling(window=200).mean()
-        golden_cross = None
-        death_cross = None
-        if len(df) >= 200:
-            golden_cross = bool(df["SMA50"].iloc[-1] > df["SMA200"].iloc[-1])
-            death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
+        golden_cross = bool(df["SMA50"].iloc[-1] > df["SMA200"].iloc[-1])
+        death_cross = bool(df["SMA50"].iloc[-1] < df["SMA200"].iloc[-1])
 
         latest = df.iloc[-1].replace({np.nan: None}).to_dict()
         last5 = df.tail(5).replace({np.nan: None}).to_dict(orient="records")
 
         return {
             "symbol": symbol.upper(),
-            "latest": {
-                "RSI": latest.get("RSI"),
-                "MACD": latest.get("MACD"),
-                "Signal": latest.get("Signal"),
-                "BollingerBands": {
-                    "upper": latest.get("BB_upper"),
-                    "lower": latest.get("BB_lower"),
-                    "middle": latest.get("BB_middle"),
-                },
-                "VWAP": latest.get("VWAP"),
-                "CMF": latest.get("CMF"),
-                "OBV": latest.get("OBV"),
-                "SMA50": latest.get("SMA50"),
-                "SMA200": latest.get("SMA200"),
-                "GoldenCross": golden_cross,
-                "DeathCross": death_cross,
-            },
-            "last5": last5
+            "latest": latest,
+            "last5": last5,
+            "GoldenCross": golden_cross,
+            "DeathCross": death_cross
         }
 
     except Exception as e:
@@ -259,6 +242,6 @@ async def sse():
 async def custom_openapi():
     return JSONResponse(get_openapi(
         title=app.title,
-        version="1.0.0",
+        version="1.1.0",
         routes=app.routes
     ))
