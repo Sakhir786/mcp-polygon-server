@@ -1,201 +1,174 @@
-Absolutely — here’s a complete and professional `README.md` file for your project repo.
+# 📈 MCP Polygon GPT + TradePilot Engine  
+### (Render Deployment Edition)
+
+A production-grade **FastAPI backend** built for **real-time trading intelligence**, integrating **Polygon.io data** with GPT-driven decision logic.  
+Deployed seamlessly on **Render.com**, this server powers the **TradePilot GPT Agent** — providing structured indicator analytics, signal generation, and multi-layer strategy execution.
 
 ---
 
-## ✅ `README.md` — MCP Polygon GPT Trading Server
+## 🚀 Core Features
 
-````markdown
-# 📈 MCP Polygon Server for GPT Stock Trading Agents
-
-A lightweight FastAPI backend that connects to the **Polygon.io** API and powers a **GPT-4/5 stock trading agent**. It provides endpoints for real-time (delayed) quotes, candles, options, news, and more — and integrates with the **ChatGPT MCP Connector** to enable live, data-driven stock analysis.
-
----
-
-## 🚀 Features
-
-| Capability            | Endpoint              | Description                              |
-|----------------------|------------------------|------------------------------------------|
-| 🔍 Ticker Lookup      | `/symbol-lookup`       | Resolve user input to a valid stock ticker |
-| 📈 Price Candles      | `/candles`             | Historical OHLCV data (day/minute)       |
-| 📰 News Sentiment     | `/news`                | Latest news articles for a ticker        |
-| 🎯 Options Chain      | `/options`             | Call/Put options ~30 days out            |
-| 💬 Quote Snapshot     | `/quote`               | Last known quote (bid/ask/last)          |
-| 🧾 Last Trade         | `/last-trade`          | Most recent trade price and volume       |
-| 🏢 Ticker Metadata    | `/ticker-details`      | Sector, industry, exchange, etc.         |
-| 🔄 SSE Keep Alive     | `/sse`                 | Maintains GPT MCP connection             |
+| Capability | Endpoint | Description |
+|-------------|-----------|-------------|
+| 🔍 Ticker Lookup | `/symbol-lookup` | Resolve company names to valid tickers |
+| 📈 Price Candles | `/candles` | Pull OHLCV data for any timeframe |
+| 📰 News Feed | `/news` | Latest market and sentiment-tagged headlines |
+| 🎯 Options Chain | `/options` | Retrieves active call/put contracts |
+| 💬 Quote Snapshot | `/quote` | Live bid/ask/last price data |
+| 🧾 Last Trade | `/last-trade` | Latest executed trade and volume |
+| 🏢 Company Info | `/ticker-details` | Metadata (sector, market cap, etc.) |
+| ⚙️ Engine Analysis | `/engine/analyze` | Runs multi-layer indicator engine |
+| 🧠 Signal Summary | `/engine/signal-summary` | Returns overall technical bias |
+| 🔄 SSE | `/sse` | Keeps GPT MCP session active |
 
 ---
 
-## 🤖 Powered by
+## ☁️ Render Deployment
 
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Polygon.io](https://polygon.io/)
-- [OpenAI GPTs + MCP Connector](https://platform.openai.com/)
+This project is built for **Render.com** — minimal setup, automatic scaling, and secure environment management.
 
----
+### 1️⃣ Deploy on Render
 
-## 🛠️ Setup & Deployment
-
-### 1. 🔐 Create `.env` file
-
-Create a `.env` file in the root directory with your Polygon API key:
-
-```env
-POLYGON_API_KEY=YOUR_API_KEY_HERE
-````
+1. Push this repository to **GitHub**.
+2. Go to your [Render Dashboard](https://render.com).
+3. Click **“New → Web Service”**.
+4. Connect your GitHub repo → Render detects it’s a **Python (FastAPI)** app automatically.
 
 ---
 
-### 2. 📦 Install dependencies
+### 2️⃣ Add Environment Variables
 
-```bash
-pip install -r requirements.txt
-```
+In Render → **Environment** tab → click **Add Variable**:
 
----
-
-### 3. 🚀 Run the server locally
-
-```bash
-uvicorn main:app --reload --port 10000
-```
-
-The API will be live at: `http://localhost:10000`
+| Key | Value |
+|------|-------|
+| `POLYGON_API_KEY` | Your Polygon.io API key |
+| `PORT` | `10000` |
+| `PYTHON_VERSION` | `3.11` |
 
 ---
 
-### 4. 🌐 Render Deployment (Optional)
+### 3️⃣ Add `render.yaml` (already included)
 
-If you're using [Render.com](https://render.com):
+Your current Render config file should look like this:
 
-* Include `render.yaml` in the root.
-* Render will auto-install using `requirements.txt`.
-* Set the environment variable `POLYGON_API_KEY`.
+```yaml
+# 📦 render.yaml — Deployment Configuration
+services:
+  - type: web
+    name: tradepilot-mcp-server
+    env: python
+    plan: starter
+    region: oregon
 
----
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
 
-## 📡 Endpoints Overview
+    startCommand: |
+      uvicorn main:app --host 0.0.0.0 --port 10000
 
-### 🔍 `/symbol-lookup?query=AAPL`
+    envVars:
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: PORT
+        value: 10000
 
-Returns all matching tickers for a company name or ticker.
+    autoDeploy: true
+    healthCheckPath: /
+    disk:
+      name: engine-cache
+      mountPath: /mnt/data
+      sizeGB: 2
+✅ This configuration:
 
----
+Installs dependencies automatically
 
-### 📈 `/candles?symbol=AAPL&tf=day&limit=90`
+Exposes your FastAPI app at https://tradepilot-mcp-server.onrender.com
 
-Returns 90 days of OHLCV data for trend analysis.
+Keeps your .env keys secure
 
----
+Creates a small persistent disk for cached indicator data
 
-### 📰 `/news?symbol=AAPL`
+4️⃣ File Structure
+After adding engine_router.py and tradepilot_engine/, your directory should look like this:
 
-Fetches 5 latest news articles for the stock.
-
----
-
-### 🎯 `/options?symbol=AAPL&type=call&days_out=30`
-
-Returns near-term call/put option contracts.
-
----
-
-### 💬 `/quote?symbol=AAPL`
-
-Fetches delayed quote info (bid, ask, last price).
-
----
-
-### 🧾 `/last-trade?symbol=AAPL`
-
-Returns the last trade (price, volume, timestamp).
-
----
-
-### 🏢 `/ticker-details?symbol=AAPL`
-
-Returns metadata (sector, exchange, market cap).
-
----
-
-### 🔄 `/sse`
-
-Streaming endpoint to maintain GPT connector session.
-
----
-
-## 📦 File Structure
-
-```
+bash
+Copy code
 .
-├── main.py              # FastAPI route definitions
-├── polygon_client.py    # API logic layer
-├── requirements.txt     # Python dependencies
-├── .env                 # Your API key (not committed)
-├── render.yaml          # Render.com deployment config
-└── README.md            # This file
-```
+├── .env
+├── README.md
+├── config.py
+├── indicators.py
+├── main.py
+├── polygon_client.py
+├── engine_router.py            # ⚙️ Handles /engine endpoints
+├── render.yaml
+├── requirements.txt
+└── tradepilot_engine/          # 🧠 Multi-layer technical engine
+    ├── layer_1_momentum/
+    ├── layer_2_volume/
+    ├── layer_3_divergence/
+    ├── layer_4_volume_strength/
+    ├── layer_5_trend/
+    ├── layer_6_structure/
+    ├── layer_7_liquidity/
+    ├── layer_8_volatility_regime/
+    ├── layer_9_confirmation/
+    └── layer_10_candle_intelligence/
+⚙️ TradePilot Engine Overview
+The TradePilot Engine is modular and indicator-driven.
+Each layer corresponds to one analytical domain:
 
----
+Layer	Category	Example Indicators	Purpose
+1️⃣	Momentum	RSI Divergence, MACD, Momentum Oscillators	Detects acceleration & exhaustion
+2️⃣	Volume	OBV, AD, CMF, CDV	Tracks institutional volume flow
+3️⃣	Divergence	Delta Divergence Detector	Confirms price–flow divergence
+4️⃣	Volume Strength	RVOL, Volume Spike	Detects unusual accumulation
+5️⃣	Trend	ADX/DMI, SuperTrend, ATR Bands	Confirms dominant direction
+6️⃣	Structure	CHoCH/BOS, FVG	Smart money structure mapping
+7️⃣	Liquidity	Liquidity Concepts	Detects sweep zones & stops
+8️⃣	Volatility	ATR Percentile Zones	Defines current volatility regime
+9️⃣	Confirmation	MTF Continuity	Confirms cross-TF directional bias
+🔟	Candle Intelligence	Candle Pattern Detector	Validates entries via candle logic
 
-## 🤖 GPT Integration (MCP Connector)
+🧠 Endpoints Overview
+🔹 /engine/analyze?symbol=AAPL&tf=15m
+Runs all 10 layers and returns combined signal map.
 
-This backend is designed to connect with an **MCP-enabled GPT agent** via OpenAI's GPT builder.
+🔹 /engine/signal-summary?symbol=AAPL
+Returns summarized bias:
 
-Your GPT agent will use the following flow:
+json
+Copy code
+{
+  "symbol": "AAPL",
+  "signal_summary": {
+    "momentum_bias": "Bullish",
+    "trend_strength": 0.81,
+    "volume_pressure": 0.67,
+    "volatility_regime": "Normal",
+    "overall_confidence": 0.84
+  }
+}
+🔹 /engine/raw/layer_3_divergence
+Fetches data from a specific layer for debugging.
 
-1. `/symbol-lookup` → resolve user input
-2. `/candles` → get price trend
-3. `/news` → get sentiment
-4. `/options` → suggest options strategies
-5. `/quote`, `/last-trade` → get latest pricing
-6. `/ticker-details` → use context in analysis
-7. Format reply → send strategy back to user
+🧪 Local Testing (Optional)
+bash
+Copy code
+pip install -r requirements.txt
+uvicorn main:app --reload --port 10000
+Then open:
 
----
+arduino
+Copy code
+http://127.0.0.1:10000/docs
+🧑‍💻 Author
+Built by [Your Name] with GPT-5 as a live data copilot.
+MCP + Polygon.io + Render + TradePilot Engine = autonomous, data-driven trade intelligence ⚡
 
-## 🧠 Example Strategy Output
-
-```
-📊 Stock Analysis: AAPL
-📈 Trend: Bullish
-💵 Current Price: $189.23
-📰 News Sentiment: Positive
-🏢 Sector: Technology | Market Cap: $3T
-
-🎯 Top Options Picks
-1. Strike $190 - Expiry 2025-10-18
-2. Strike $195 - Expiry 2025-10-18
-
-📈 Strategy
-Price is in breakout, strong sentiment, and solid call volume.
-Consider buying the $190 call and watch volume on dips.
-```
-
----
-
-## 🧑‍💻 Author
-
-Built by [Your Name] with GPT as a data copilot
-MCP + Polygon.io = GPT-powered stock analysis ⚡
-
----
-
-## 📜 License
-
-MIT License. Use freely, but credit the project!
-
-```
-
----
-
-✅ Want it in a `.md` file? I can generate a downloadable file or push to your repo.
-
-Let me know if you want me to:
-
-- Add custom screenshots
-- Write a one-line `setup.sh`
-- Generate the OpenAPI JSON schema export
-
-You're officially production-ready. Let’s launch it. 🚀
-```
+📜 License
+MIT License.
